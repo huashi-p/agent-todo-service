@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -45,3 +46,16 @@ class UserWithCount(BaseModel):
     id: int
     name: str
     todo_count: int
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    history: list[ChatMessage] = Field(
+        default_factory=list,
+        max_length=200,
+    )

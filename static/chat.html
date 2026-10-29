@@ -1,38 +1,137 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Agent 上下文演示</title>
+</head>
 <body>
-  <textarea id="q" rows="3" cols="60">深圳天气怎么样</textarea><br>
-  <button onclick="ask()">发送</button>
+  <textarea id="q" rows="3" cols="60">请记住：我正在找深圳的AI Agent实习。</textarea>
+  <br>
+  <button id="sendButton" onclick="ask()">发送</button>
+  <button onclick="clearHistory()">新对话</button>
+  <div id="status"></div>
   <pre id="out"></pre>
 
   <script>
+    const STORAGE_KEY = "agent_history_v1";
+    let history = loadHistory();
+
+    function loadHistory() {
+      try {
+        const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return Array.isArray(value) ? value.slice(-200) : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveHistory() {
+      history = history.slice(-200);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    }
+
+    function clearHistory() {
+      history = [];
+      localStorage.removeItem(STORAGE_KEY);
+      document.getElementById("out").textContent = "";
+      document.getElementById("status").textContent = "已开始新对话";
+    }
+
     async function ask() {
+      const button = document.getElementById("sendButton");
       const out = document.getElementById("out");
+      const status = document.getElementById("status");
+      const question = document.getElementById("q").value.trim();
+
+      if (!question) {
+        status.textContent = "请输入问题";
+        return;
+      }
+
+      button.disabled = true;
       out.textContent = "";
-      const res = await fetch("/ask/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: document.getElementById("q").value }),
-      });
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop();
-        for (const part of parts) {
-          const lines = part.split("\n");
-          let event = "message";
-          let data = "";
-          for (const line of lines) {
-            if (line.startsWith("event: ")) event = line.slice(7);
-            if (line.startsWith("data: ")) data += line.slice(6);
-          }
-          if (event === "token") out.textContent += data;
+      status.textContent = "正在连接";
+
+      const userMessage = { role: "user", content: question };
+      let answer = "";
+      let serverError = "";
+      let finished = false;
+
+      try {
+        const response = await fetch("/ask/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            history
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop();
+
+          for (const part of parts) {
+            const lines = part.split("\n");
+            let event = "message";
+            let data = "";
+
+            for (const line of lines) {
+              if (line.startsWith("event: ")) {
+                event = line.slice(7);
+              }
+              if (line.startsWith("data: ")) {
+                data += line.slice(6);
+              }
+            }
+
+            if (event === "status") {
+              status.textContent = data;
+            }
+
+            if (event === "token") {
+              answer += data.replaceAll("\\n", "\n");
+              out.textContent = answer;
+            }
+
+            if (event === "error") {
+              serverError = data;
+            }
+
+            if (event === "done") {
+              finished = true;
+              status.textContent = "回答完成";
+            }
+          }
+        }
+
+        if (serverError) {
+          throw new Error(serverError);
+        }
+
+        if (!finished || !answer) {
+          throw new Error("响应提前结束，没有收到完整回答");
+        }
+
+        history.push(userMessage);
+        history.push({ role: "assistant", content: answer });
+        saveHistory();
+      } catch (error) {
+        status.textContent = `请求失败：${error.message}`;
+      } finally {
+        button.disabled = false;
       }
     }
   </script>

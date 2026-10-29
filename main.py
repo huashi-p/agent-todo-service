@@ -1,15 +1,14 @@
 import json
-from sqlalchemy import func, select
+
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
-from pydantic import BaseModel
 
 from agent import run_agent
 from cache import TODOS_CACHE_KEY, cache_clear, cache_get, cache_set
 from database import Base, engine, get_db
 from models import Todo, User
-from schemas import TodoDone, TodoIn, TodoOut, UserBrief, UserIn, UserOut, UserWithCount
+from schemas import AskRequest, TodoDone, TodoIn, TodoOut, UserIn, UserOut
 import asyncio
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,9 +20,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 AGENT_TIMEOUT = 60.0
 
-
-class AskRequest(BaseModel):
-    question: str
 
 @app.get("/stream")
 async def stream():
@@ -165,12 +161,13 @@ def delete_todo(todo_id: int, db: Session = Depends(get_db)):
     return None
 
 
-async def ask_stream_events(question: str):
+async def ask_stream_events(question: str, history):
+    yield "event: status\ndata: 正在整理上下文\n\n"
     yield "event: status\ndata: 正在思考\n\n"
 
     try:
         answer = await asyncio.wait_for(
-            run_agent(question),
+            run_agent(question, history=history),
             timeout=AGENT_TIMEOUT,
         )
     except asyncio.TimeoutError:
@@ -196,7 +193,10 @@ async def ask_stream_events(question: str):
 @app.post("/ask/stream")
 async def ask_stream(request: AskRequest):
     return StreamingResponse(
-        ask_stream_events(request.question),
+        ask_stream_events(
+            request.question,
+            request.history,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
