@@ -1,13 +1,14 @@
 import asyncio
+import inspect
 import json
 import os
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from starlette.concurrency import run_in_threadpool
 
 from context import SUMMARY_TOKEN_BUDGET, build_context
 from tools import TOOL_FUNCTIONS, TOOLS
-
 
 load_dotenv()
 
@@ -92,7 +93,10 @@ async def run_agent(question, history=None, max_steps=5):
                     result = f"没有这个工具：{name}"
                 else:
                     try:
-                        result = func(**args)
+                        if inspect.iscoroutinefunction(func):
+                            result = await func(**args)
+                        else:
+                            result = await run_in_threadpool(func, **args)
                     except Exception as e:
                         result = f"工具执行出错：{e}"
 

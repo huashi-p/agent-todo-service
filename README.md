@@ -1,12 +1,14 @@
-# Agent Todo Service
+# OfferFlow
 
-一个手写 ReAct Agent 与任务管理服务。Agent 支持天气查询、数学计算和当前时间工具；服务集成 PostgreSQL、Redis 缓存、SSE 流式输出、Docker Compose 和 Nginx 反向代理。
+一个求职投递跟踪与证据匹配 Agent。用户可以保存岗位和截止日期、
+更新投递状态、记录简历与项目证据，并让 Agent 解释哪些岗位要求有
+证据支持、哪些存在技能缺口。
 
 ## 项目状态
 
-当前为 Week 6 工程基础版本，完成了 Agent API、数据库、缓存、流式输出和公网部署。
-
-后续计划加入真实领域工具、多轮对话、上下文压缩、RAG、搜索引用、评测和请求额度控制。
+当前为 Week 8 本地版本，已有上下文预算、领域工具、状态历史、
+轻量证据检索和自动化测试。公网服务器仍可能运行旧版本，部署更新
+前不要用线上地址判断最新功能。
 
 ## 在线演示
 
@@ -17,18 +19,26 @@
 
 ## 功能
 
-- 手写 ReAct 循环，支持多轮 function calling
-- 天气查询、数学计算、当前时间三个工具
-- SSE 流式输出最终答案
-- FastAPI 用户与任务 CRUD
-- SQLAlchemy ORM 一对多关系
-- PostgreSQL 数据持久化
-- Redis 列表缓存，包含 TTL 和写后失效
-- Redis 故障时降级查询数据库
-- Docker Compose 管理 API、PostgreSQL 和 Redis
-- Nginx 反向代理与请求限流
-- Docker 服务自动重启
-- 公网 Ubuntu 服务器部署
+- 岗位投递记录的创建、查询和删除
+- 公司岗位指纹去重
+- 投递状态机和独立状态历史
+- 即将截止和长期未跟进查询
+- 简历、项目和笔记证据切分与保存
+- 岗位要求与证据匹配，返回 `matched`、`partial`、`missing`
+- 六个 Agent Function Calling 工具
+- 聊天历史、token 预算、旧历史摘要和 SSE
+- PostgreSQL 持久化、Redis 缓存和 Docker Compose
+
+## Agent 工具
+
+```text
+create_application
+delete_application
+update_application_status
+list_due_applications
+add_evidence_document
+match_resume_evidence
+```
 
 ## 架构
 
@@ -111,6 +121,21 @@ http://127.0.0.1:8002/static/chat.html
 | `REDIS_URL` | Redis 完整连接地址，优先使用 |
 | `REDIS_HOST` | Redis 主机名，未设置 `REDIS_URL` 时使用 |
 | `REDIS_PORT` | Redis 端口，默认 6379 |
+| `CONTEXT_TOKEN_BUDGET` | 上下文 token 预算，默认 6000 |
+| `SUMMARY_TOKEN_BUDGET` | 旧历史摘要预算，默认 800 |
+| `RECENT_MESSAGE_LIMIT` | 保留的最近消息数，默认 20 |
+
+## 测试
+
+测试使用临时 SQLite 数据库，不会修改正式 PostgreSQL 数据：
+
+```powershell
+cd D:\code\api
+D:\code\api\.venv\Scripts\python.exe test_offerflow_tools.py
+```
+
+该测试覆盖创建、重复检测、确认保护、状态机、状态历史、截止和
+长期未跟进查询、证据匹配、查询与删除。
 
 ## API
 
@@ -165,9 +190,10 @@ data: [DONE]
 
 ## 已知限制
 
-- 天气工具使用示例数据
-- 当前流式为最终答案逐字发送，不是模型原生 token 流式
-- 单实例部署，没有多副本
-- 暂无用户登录鉴权
-- 使用 HTTP 公网演示，不传输敏感数据
-- 尚未完成真实领域 RAG 和 Agent 评测
+- 指纹只用公司和岗位名，可能误判不同城市的同名岗位。
+- `confirmed` 是模型生成的布尔参数，不是强用户认证。
+- 轻量检索依赖关键词和手写别名，不支持语义向量召回。
+- 匹配结果不代表录用概率。
+- 当前流式为最终答案逐字发送，不是模型原生 token 流式。
+- 单实例部署，没有多副本和用户登录鉴权。
+- 领域任务表、提醒任务和复杂 RAG 尚未实现。

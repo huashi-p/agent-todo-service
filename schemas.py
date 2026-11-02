@@ -59,3 +59,12 @@ class AskRequest(BaseModel):
         default_factory=list,
         max_length=200,
     )
+
+
+class ParsedJob(BaseModel):
+    company: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    source_url: str | None = Field(default=None, max_length=2000)
+    deadline: datetime | None = None
+    requirements: list[str] = Field(default_factory=list, max_length=30)
