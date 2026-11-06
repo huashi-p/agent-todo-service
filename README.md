@@ -6,16 +6,34 @@
 
 ## 项目状态
 
-当前为 Week 8 本地版本，已有上下文预算、领域工具、状态历史、
-轻量证据检索和自动化测试。公网服务器仍可能运行旧版本，部署更新
-前不要用线上地址判断最新功能。
+当前为 Week 9 MVP 本地开发版本，已完成岗位解析、投递状态、证据检索、
+Reflection、任务持久化、上下文预算、SSE 和离线回归测试。
 
-## 在线演示
+公网服务器可能仍运行旧版本，部署更新前不要用线上地址判断最新功能。
+从准备任务草稿到用户确认保存的完整流程仍以 Day 62 端到端验收结果为准。
+详细的 Week 9 冻结范围见 [Week 9 MVP 冻结](docs/week9-mvp-freeze.md)。
+
+## 历史公网演示
 
 - 流式聊天页面：http://123.207.78.167:8002/static/chat.html
 - FastAPI Swagger：http://123.207.78.167:8002/docs
 
+> 以上地址可能仍运行 Week 8 版本。Week 9 功能以本地运行和测试结果为准。
 > 当前为个人演示环境，使用公网 IP 和 HTTP，不包含真实用户密码或敏感数据。
+
+## 产品主流程
+
+```text
+粘贴岗位 JD
+→ 解析并由用户确认
+→ 创建投递记录
+→ 保存简历或项目证据
+→ 匹配岗位要求
+→ 显示证据和技能缺口
+→ Reflection 检查匹配结果
+→ 生成准备任务草稿
+→ 用户确认后保存任务
+```
 
 ## 功能
 
@@ -25,20 +43,39 @@
 - 即将截止和长期未跟进查询
 - 简历、项目和笔记证据切分与保存
 - 岗位要求与证据匹配，返回 `matched`、`partial`、`missing`
-- 六个 Agent Function Calling 工具
+- 证据排序、原文命中、覆盖率和重复片段去除
+- Reflection 确定性检查状态与证据是否一致
+- 根据技能缺口生成准备任务草稿
+- 用户确认后创建、查询和完成任务
 - 聊天历史、token 预算、旧历史摘要和 SSE
 - PostgreSQL 持久化、Redis 缓存和 Docker Compose
 
+User/Todo CRUD 和 Redis Todo 缓存属于工程底座，不是 OfferFlow 产品主流程。
+
 ## Agent 工具
 
+当前注册 12 个工具：
+
 ```text
+parse_job_json
 create_application
 delete_application
 update_application_status
 list_due_applications
 add_evidence_document
 match_resume_evidence
+build_preparation_plan
+create_application_task
+list_application_tasks
+complete_application_task
+reflect_match_result
 ```
+
+其中：
+
+- `build_preparation_plan` 只生成计划草稿，不写入数据库。
+- `create_application_task` 必须收到用户确认后才持久化。
+- `reflect_match_result` 使用确定性规则检查证据，不重新调用模型。
 
 ## 架构
 
@@ -132,12 +169,18 @@ http://127.0.0.1:8002/static/chat.html
 ```powershell
 cd D:\code\api
 D:\code\api\.venv\Scripts\python.exe test_offerflow_tools.py
+D:\code\api\.venv\Scripts\python.exe evaluate_matching.py
 ```
 
-该测试覆盖创建、重复检测、确认保护、状态机、状态历史、截止和
-长期未跟进查询、证据匹配、查询与删除。
+覆盖创建、重复检测、确认保护、状态机、状态历史、截止和长期未跟进、
+证据匹配、证据排序、Reflection、任务和终态回归。
+
+匹配评估使用固定离线样例，结果不能等同于真实用户准确率。
 
 ## API
+
+`/ask/stream` 是产品主入口。下面的 User/Todo 路由保留为工程底座，
+用于证明 CRUD、数据库和 Redis 基础设施能力。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -194,6 +237,7 @@ data: [DONE]
 - `confirmed` 是模型生成的布尔参数，不是强用户认证。
 - 轻量检索依赖关键词和手写别名，不支持语义向量召回。
 - 匹配结果不代表录用概率。
+- 外部用户试用和真实反馈尚未完成，当前只有开发样例。
 - 当前流式为最终答案逐字发送，不是模型原生 token 流式。
 - 单实例部署，没有多副本和用户登录鉴权。
-- 领域任务表、提醒任务和复杂 RAG 尚未实现。
+- 没有复杂任务看板、自动通知和多智能体功能。

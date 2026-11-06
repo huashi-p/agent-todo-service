@@ -21,6 +21,13 @@ from evidence_service import (
     add_evidence_document,
     match_resume_evidence,
 )
+
+from evidence_service import (
+    add_evidence_document,
+    match_resume_evidence,
+)
+from reflection_service import reflect_match_result
+
 from database import engine
 from models import ApplicationStatusEvent, JobApplication
 from status_service import (
@@ -157,7 +164,28 @@ status_by_requirement = {
 assert status_by_requirement["熟悉 FastAPI"] == "matched"
 assert status_by_requirement["有 RAG 项目经验"] == "matched"
 assert status_by_requirement["具备 Rust 开发经验"] == "missing"
+assert status_by_requirement == {
+    "熟悉 FastAPI": "matched",
+    "有 RAG 项目经验": "matched",
+    "具备 Rust 开发经验": "missing",
+}
+reflection = json.loads(
+    reflect_match_result(matched)
+)
 
+assert reflection["ok"] is True
+assert reflection["issues"] == []
+matched["matches"][0]["evidence"] = []
+
+broken_reflection = json.loads(
+    reflect_match_result(matched)
+)
+
+assert broken_reflection["ok"] is False
+assert any(
+    "没有证据" in issue
+    for issue in broken_reflection["issues"]
+)
 
 assert json.loads(list_applications())["count"] == 1
 
@@ -174,5 +202,35 @@ deleted = json.loads(
 )
 assert deleted["ok"] is True
 assert json.loads(list_applications())["count"] == 0
+
+
+rejected_app = json.loads(
+    create_application(
+        company="状态测试公司",
+        title="终态岗位",
+        description="用于验证 rejected 是终态，不能继续流转。",
+        confirmed=True,
+    )
+)
+rejected_id = rejected_app["application_id"]
+
+first_update = json.loads(
+    update_application_status(
+        application_id=rejected_id,
+        new_status="rejected",
+        confirmed=True,
+    )
+)
+assert first_update["ok"] is True
+
+closed = json.loads(
+    update_application_status(
+        application_id=rejected_id,
+        new_status="assessment",
+        confirmed=True,
+    )
+)
+assert closed["error_code"] == "invalid_transition"
+
 
 print("OfferFlow 工具测试通过")

@@ -48,3 +48,9 @@ async def parse_job_description(description):
         return ParsedJob.model_validate_json(content)
     except ValidationError as e:
         raise ValueError(f"岗位解析结果格式错误：{e}") from e
+
+
+async def parse_job_json(description):
+    parsed = await parse_job_description(description)
+    return parsed.model_dump_json()
+

@@ -67,6 +67,73 @@ def has_direct_skill_match(requirement, content):
 
     return False
 
+
+def rank_evidence(requirement, chunks, top_k=3):
+    terms = requirement_terms(requirement)
+    normalized_requirement = normalize_text(requirement)
+    ranked = []
+
+    for chunk in chunks:
+        searchable = normalize_text(chunk["content"])
+        direct_match = has_direct_skill_match(
+            requirement,
+            chunk["content"],
+        )
+        matched_terms = {
+            term
+            for term in terms
+            if term in searchable
+        }
+        phrase_match = normalized_requirement in searchable
+
+        if not matched_terms and not direct_match:
+            continue
+
+        coverage = (
+            len(matched_terms) / len(terms)
+            if terms
+            else 0
+        )
+        ranked.append(
+            {
+                "chunk": chunk,
+                "score": len(matched_terms),
+                "coverage": coverage,
+                "matched_terms": sorted(matched_terms),
+                "direct_match": direct_match,
+                "phrase_match": phrase_match,
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item["direct_match"],
+            item["phrase_match"],
+            item["score"],
+            item["coverage"],
+            -item["chunk"]["id"],
+        ),
+        reverse=True,
+    )
+
+    selected = []
+    seen_content = set()
+
+    for item in ranked:
+        fingerprint = normalize_text(item["chunk"]["content"])
+
+        if fingerprint in seen_content:
+            continue
+
+        seen_content.add(fingerprint)
+        selected.append(item)
+
+        if len(selected) >= top_k:
+            break
+
+    return selected
+
+
 def match_resume_evidence(application_id, top_k=3):
     top_k = max(1, min(int(top_k), 5))
 
@@ -105,41 +172,11 @@ def match_resume_evidence(application_id, top_k=3):
         matches = []
 
         for requirement in application_data["requirements"]:
-            terms = requirement_terms(requirement)
-            ranked = []
-
-            for chunk in chunks:
-                searchable = normalize_text(chunk["content"])
-                direct_match = has_direct_skill_match(
-                    requirement,
-                    chunk["content"],
-                )
-                matched_terms = {
-                    term
-                    for term in terms
-                    if term in searchable
-                }
-
-                if matched_terms or direct_match:
-                    ranked.append(
-                        {
-                            "chunk": chunk,
-                            "score": len(matched_terms),
-                            "matched_terms": sorted(matched_terms),
-                            "direct_match": direct_match,
-                        }
-                    )
-
-            ranked.sort(
-                key=lambda item: (
-                    item["direct_match"],
-                    item["score"],
-                    -item["chunk"]["id"],
-                ),
-                reverse=True,
+            selected = rank_evidence(
+                requirement,
+                chunks,
+                top_k,
             )
-            selected = ranked[:top_k]
-
             if not selected:
                 match_status = "missing"
             elif selected[0]["direct_match"] or selected[0]["score"] >= 2:

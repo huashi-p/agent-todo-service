@@ -130,4 +130,34 @@ class EvidenceChunk(Base):
     )
 
 
+class ApplicationTask(Base):
+    __tablename__ = "application_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("job_applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    task_type: Mapped[str] = mapped_column(String(40))
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+    )
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
 Base.metadata.create_all(bind=engine)
