@@ -129,7 +129,78 @@ class EvidenceChunk(Base):
         default=utc_now,
     )
 
+class SkillRequirement(Base):
+    __tablename__ = "skill_requirements"
 
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("job_applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    requirement: Mapped[str] = mapped_column(Text)
+    importance: Mapped[str] = mapped_column(
+        String(20),
+        default="must_have",
+    )
+    current_status: Mapped[str] = mapped_column(String(20))
+    target_level: Mapped[str] = mapped_column(
+        String(10),
+        default="L3",
+    )
+    gap_type: Mapped[str] = mapped_column(
+        String(30),
+        default="",
+    )
+    evidence_ids: Mapped[list[int]] = mapped_column(
+        JSON,
+        default=list,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+
+class LearningPlanItem(Base):
+    __tablename__ = "learning_plan_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("job_applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    requirement_id: Mapped[int] = mapped_column(
+        ForeignKey("skill_requirements.id", ondelete="CASCADE"),
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    objective: Mapped[str] = mapped_column(Text)
+    target_level: Mapped[str] = mapped_column(String(10))
+    steps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    exercise: Mapped[str] = mapped_column(Text)
+    deliverable: Mapped[str] = mapped_column(Text)
+    acceptance_criteria: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+    )
+    sources: Mapped[list[dict]] = mapped_column(
+        JSON,
+        default=list,
+    )
+    estimated_hours: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    
 class ApplicationTask(Base):
     __tablename__ = "application_tasks"
 

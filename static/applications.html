@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OfferFlow 投递跟踪</title>
+  <style>
+    body {
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 0 20px;
+      font-family: system-ui, sans-serif;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 24px;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .card:hover {
+      background: #f7f7f7;
+    }
+    .status {
+      font-weight: 600;
+    }
+    .event, .task {
+      border-left: 3px solid #888;
+      padding-left: 12px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>OfferFlow 投递跟踪</h1>
+  <p><a href="/static/chat.html">返回 Agent 对话</a></p>
+  <div class="layout">
+    <section>
+      <h2>全部投递</h2>
+      <button id="refresh">刷新</button>
+      <div id="applications"></div>
+    </section>
+    <section>
+      <h2>投递详情</h2>
+      <div id="detail">选择左侧投递记录。</div>
+    </section>
+  </div>
+  <script>
+    const STATUS_LABELS = {
+      applied: "已投递",
+      assessment: "测评",
+      first_interview: "一面",
+      second_interview: "二面",
+      hr_interview: "HR 面",
+      offer: "Offer",
+      rejected: "已拒绝",
+      withdrawn: "已撤回"
+    };
+
+    const listBox = document.querySelector("#applications");
+    const detailBox = document.querySelector("#detail");
+
+    async function loadApplications() {
+      listBox.textContent = "正在加载……";
+      const response = await fetch("/api/applications");
+      const data = await response.json();
+      listBox.textContent = "";
+
+      if (!data.applications.length) {
+        listBox.textContent = "还没有投递记录。";
+        return;
+      }
+
+      for (const application of data.applications) {
+        const button = document.createElement("button");
+        button.className = "card";
+        button.textContent = [
+          `${application.company} · ${application.title}`,
+          `${STATUS_LABELS[application.current_status] || application.current_status}`,
+          application.deadline
+            ? `截止：${new Date(application.deadline).toLocaleString()}`
+            : "无截止时间"
+        ].join(" | ");
+        button.addEventListener("click", () => loadDetail(application.id));
+        listBox.appendChild(button);
+      }
+    }
+
+    async function loadDetail(applicationId) {
+      detailBox.textContent = "正在加载……";
+      const response = await fetch(`/api/applications/${applicationId}`);
+      const data = await response.json();
+      const planResponse = await fetch(
+        `/api/applications/${applicationId}/learning-plan`
+      );
+      const planData = await planResponse.json();
+      detailBox.textContent = "";
+
+      const title = document.createElement("h3");
+      title.textContent = `${data.company} · ${data.title}`;
+      detailBox.appendChild(title);
+
+      const summary = document.createElement("p");
+      summary.textContent = [
+        `状态：${STATUS_LABELS[data.current_status] || data.current_status}`,
+        `地点：${data.location || "未填写"}`,
+        `要求数量：${data.requirements.length}`
+      ].join(" | ");
+      detailBox.appendChild(summary);
+
+      const historyTitle = document.createElement("h4");
+      historyTitle.textContent = "状态历史";
+      detailBox.appendChild(historyTitle);
+
+      if (!data.history.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "暂无状态变更。";
+        detailBox.appendChild(empty);
+      }
+
+      for (const event of data.history) {
+        const item = document.createElement("div");
+        item.className = "event";
+        item.textContent = [
+          event.from_status || "创建",
+          "→",
+          event.to_status,
+          event.note,
+          new Date(event.created_at).toLocaleString()
+        ].filter(Boolean).join(" ");
+        detailBox.appendChild(item);
+      }
+
+      const tasksTitle = document.createElement("h4");
+      tasksTitle.textContent = "关联任务";
+      detailBox.appendChild(tasksTitle);
+
+      if (!data.tasks.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "暂无任务。";
+        detailBox.appendChild(empty);
+      }
+
+      for (const task of data.tasks) {
+        const item = document.createElement("div");
+        item.className = "task";
+        item.textContent = [
+          task.title,
+          task.task_type,
+          task.status,
+          task.due_at ? `截止：${new Date(task.due_at).toLocaleString()}` : ""
+        ].filter(Boolean).join(" | ");
+        detailBox.appendChild(item);
+      }
+
+      const planTitle = document.createElement("h4");
+      planTitle.textContent = "技能进阶计划";
+      detailBox.appendChild(planTitle);
+
+      if (!planData.items.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "暂无学习计划。";
+        detailBox.appendChild(empty);
+      }
+
+      for (const plan of planData.items) {
+        const item = document.createElement("div");
+        item.className = "task";
+        item.textContent = [
+          plan.title,
+          `目标等级：${plan.target_level}`,
+          `预计 ${plan.estimated_hours} 小时`,
+          plan.status
+        ].join(" | ");
+        detailBox.appendChild(item);
+
+        const details = document.createElement("ul");
+        for (const [label, value] of [
+          ["练习", plan.exercise],
+          ["交付物", plan.deliverable],
+          ["学习步骤", (plan.steps || []).join("；")],
+          ["验收标准", (plan.acceptance_criteria || []).join("；")]
+        ]) {
+          const row = document.createElement("li");
+          row.textContent = `${label}：${value}`;
+          details.appendChild(row);
+        }
+        detailBox.appendChild(details);
+      }
+    }
+
+    document.querySelector("#refresh").addEventListener("click", loadApplications);
+    loadApplications();
+  </script>
+</body>
+</html>

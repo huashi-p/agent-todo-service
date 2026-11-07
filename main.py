@@ -7,16 +7,33 @@ from sqlalchemy.orm import Session, selectinload
 from agent import run_agent
 from cache import TODOS_CACHE_KEY, cache_clear, cache_get, cache_set
 from database import Base, engine, get_db
-from models import Todo, User
+
+from models import (
+    ApplicationStatusEvent,
+    ApplicationTask,
+    JobApplication,
+    Todo,
+    User,
+)
 from schemas import AskRequest, TodoDone, TodoIn, TodoOut, UserIn, UserOut
 import asyncio
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 Base.metadata.create_all(bind=engine)
-
-app = FastAPI()
+class UTF8JSONResponse(JSONResponse):
+    media_type = "application/json; charset=utf-8"
+app = FastAPI(default_response_class=UTF8JSONResponse)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "service": "offerflow",
+    }
+
 
 AGENT_TIMEOUT = 60.0
 
@@ -189,6 +206,90 @@ async def ask_stream_events(question: str, history):
 
     yield "event: done\ndata: [DONE]\n\n"
 
+@app.get("/api/applications")
+def list_application_records(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    limit = max(1, min(limit, 100))
+    items = db.scalars(
+        select(JobApplication)
+        .order_by(JobApplication.updated_at.desc())
+        .limit(limit)
+    ).all()
+
+    return {
+        "count": len(items),
+        "applications": [
+            {
+                "id": item.id,
+                "company": item.company,
+                "title": item.title,
+                "location": item.location,
+                "current_status": item.current_status,
+                "deadline": item.deadline,
+                "updated_at": item.updated_at,
+            }
+            for item in items
+        ],
+    }
+@app.get("/api/applications/{application_id}")
+def get_application_detail(
+    application_id: int,
+    db: Session = Depends(get_db),
+):
+    item = db.get(JobApplication, application_id)
+
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail="没有这个投递记录",
+        )
+
+    events = db.scalars(
+        select(ApplicationStatusEvent)
+        .where(ApplicationStatusEvent.application_id == application_id)
+        .order_by(ApplicationStatusEvent.created_at)
+    ).all()
+
+    tasks = db.scalars(
+        select(ApplicationTask)
+        .where(ApplicationTask.application_id == application_id)
+        .order_by(ApplicationTask.created_at)
+    ).all()
+
+    return {
+        "id": item.id,
+        "company": item.company,
+        "title": item.title,
+        "location": item.location,
+        "source_url": item.source_url,
+        "current_status": item.current_status,
+        "deadline": item.deadline,
+        "requirements": list(item.requirements or []),
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "history": [
+            {
+                "from_status": event.from_status,
+                "to_status": event.to_status,
+                "note": event.note,
+                "created_at": event.created_at,
+            }
+            for event in events
+        ],
+        "tasks": [
+            {
+                "id": task.id,
+                "title": task.title,
+                "task_type": task.task_type,
+                "due_at": task.due_at,
+                "status": task.status,
+                "note": task.note,
+            }
+            for task in tasks
+        ],
+    }
 
 @app.post("/ask/stream")
 async def ask_stream(request: AskRequest):
