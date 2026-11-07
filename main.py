@@ -15,6 +15,18 @@ from models import (
     Todo,
     User,
 )
+from learning_plan_service import (
+    build_learning_plan,
+    save_learning_plan,
+)
+from models import (
+    LearningPlanItem,
+    SkillRequirement,
+)
+from schemas import (
+    LearningPlanDraftRequest,
+    LearningPlanSaveRequest,
+)
 from schemas import AskRequest, TodoDone, TodoIn, TodoOut, UserIn, UserOut
 import asyncio
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -288,6 +300,88 @@ def get_application_detail(
                 "note": task.note,
             }
             for task in tasks
+        ],
+    }
+
+@app.post("/api/applications/{application_id}/learning-plan/draft")
+def create_learning_plan_draft(
+    application_id: int,
+    body: LearningPlanDraftRequest,
+):
+    return json.loads(
+        build_learning_plan(
+            application_id,
+            body.available_hours_per_week,
+        )
+    )
+
+@app.post("/api/applications/{application_id}/learning-plan")
+def create_saved_learning_plan(
+    application_id: int,
+    body: LearningPlanSaveRequest,
+):
+    result = json.loads(
+        save_learning_plan(
+            application_id,
+            body.items,
+            confirmed=body.confirmed,
+            available_hours_per_week=(
+                body.available_hours_per_week
+            ),
+        )
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=result,
+        )
+
+    return result
+
+@app.get("/api/applications/{application_id}/learning-plan")
+def get_learning_plan(
+    application_id: int,
+    db: Session = Depends(get_db),
+):
+    if db.get(JobApplication, application_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail="没有这个投递记录",
+        )
+
+    rows = db.execute(
+        select(LearningPlanItem, SkillRequirement)
+        .join(
+            SkillRequirement,
+            LearningPlanItem.requirement_id == SkillRequirement.id,
+        )
+        .where(
+            LearningPlanItem.application_id == application_id
+        )
+        .order_by(LearningPlanItem.created_at)
+    ).all()
+
+    return {
+        "application_id": application_id,
+        "count": len(rows),
+        "items": [
+            {
+                "id": plan.id,
+                "requirement": requirement.requirement,
+                "match_status": requirement.current_status,
+                "target_level": plan.target_level,
+                "title": plan.title,
+                "objective": plan.objective,
+                "steps": plan.steps,
+                "exercise": plan.exercise,
+                "deliverable": plan.deliverable,
+                "acceptance_criteria": plan.acceptance_criteria,
+                "estimated_hours": plan.estimated_hours,
+                "sources": plan.sources,
+                "status": plan.status,
+            }
+            for plan, requirement in rows
         ],
     }
 

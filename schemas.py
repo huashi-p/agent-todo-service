@@ -68,3 +68,20 @@ class ParsedJob(BaseModel):
     source_url: str | None = Field(default=None, max_length=2000)
     deadline: datetime | None = None
     requirements: list[str] = Field(default_factory=list, max_length=30)
+
+class LearningPlanDraftRequest(BaseModel):
+    available_hours_per_week: int = Field(
+        default=10,
+        ge=1,
+        le=40,
+    )
+
+
+class LearningPlanSaveRequest(BaseModel):
+    available_hours_per_week: int = Field(
+        default=10,
+        ge=1,
+        le=40,
+    )
+    items: list[dict]
+    confirmed: bool = False

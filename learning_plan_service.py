@@ -1,9 +1,17 @@
 import json
 
-from application_service import dump, normalize_text
-from evidence_service import SKILL_ALIASES, match_resume_evidence
-from skill_catalog import SKILL_PLAYBOOKS
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from application_service import dump, normalize_text, tool_error
+from database import engine
+from evidence_service import SKILL_ALIASES, match_resume_evidence
+from models import (
+    JobApplication,
+    LearningPlanItem,
+    SkillRequirement,
+)
+from skill_catalog import SKILL_PLAYBOOKS
 
 VALID_LEVELS = {"L1", "L2", "L3", "L4"}
 
@@ -27,14 +35,8 @@ def validate_plan_items(items, available_hours_per_week):
         for item in items
     )
 
-    if (
-        available_hours_per_week > 0
-        and total_hours > available_hours_per_week
-    ):
-        errors.append(
-            f"计划需要 {total_hours} 小时，超过每周可用 "
-            f"{available_hours_per_week} 小时"
-        )
+    if available_hours_per_week <= 0:
+        errors.append("每周可用学时必须大于 0")
 
     for index, item in enumerate(items, start=1):
         label = f"第 {index} 项"
@@ -107,6 +109,10 @@ def build_learning_plan(
         items,
         int(available_hours_per_week),
     )
+    weekly_hours = max(1, int(available_hours_per_week))
+    estimated_weeks = (
+                              total_hours + weekly_hours - 1
+                      ) // weekly_hours
 
     return dump(
         {
@@ -115,8 +121,131 @@ def build_learning_plan(
             "items": items,
             "unsupported": unsupported,
             "total_hours": total_hours,
+            "estimated_weeks": estimated_weeks,
             "validation_errors": errors,
             "requires_confirmation": True,
             "saved": False,
         }
     )
+
+def save_learning_plan(
+    application_id,
+    items,
+    confirmed=False,
+    available_hours_per_week=10,
+):
+    if not confirmed:
+        return tool_error(
+            "confirmation_required",
+            "保存学习计划前必须得到用户确认",
+        )
+
+    if not isinstance(items, list) or not items:
+        return tool_error(
+            "invalid_arguments",
+            "学习计划不能为空",
+        )
+
+    total_hours, errors = validate_plan_items(
+        items,
+        int(available_hours_per_week),
+    )
+
+    if errors:
+        return dump(
+            {
+                "ok": False,
+                "error_code": "invalid_plan",
+                "errors": errors,
+            }
+        )
+
+    created = 0
+    updated = 0
+
+    with Session(engine) as db:
+        application = db.get(JobApplication, int(application_id))
+
+        if application is None:
+            return tool_error("not_found", "没有这个投递记录")
+
+        for draft in items:
+            requirement_text = str(
+                draft.get("requirement", "")
+            ).strip()
+
+            requirement = db.scalar(
+                select(SkillRequirement).where(
+                    SkillRequirement.application_id == application.id,
+                    SkillRequirement.requirement == requirement_text,
+                )
+            )
+
+            evidence_ids = [
+                int(evidence["evidence_id"])
+                for evidence in draft.get("current_evidence", [])
+                if evidence.get("evidence_id") is not None
+            ]
+
+            if requirement is None:
+                requirement = SkillRequirement(
+                    application_id=application.id,
+                    requirement=requirement_text,
+                )
+                db.add(requirement)
+                created += 1
+            else:
+                updated += 1
+
+            requirement.current_status = draft["current_status"]
+            requirement.target_level = draft["target_level"]
+            requirement.gap_type = draft["current_status"]
+            requirement.evidence_ids = evidence_ids
+            db.flush()
+
+            plan = db.scalar(
+                select(LearningPlanItem).where(
+                    LearningPlanItem.application_id == application.id,
+                    LearningPlanItem.requirement_id == requirement.id,
+                )
+            )
+
+            plan_values = {
+                "title": draft["title"],
+                "objective": draft["objective"],
+                "target_level": draft["target_level"],
+                "steps": list(draft["steps"]),
+                "exercise": draft["exercise"],
+                "deliverable": draft["deliverable"],
+                "acceptance_criteria": list(
+                    draft["acceptance_criteria"]
+                ),
+                "sources": list(draft.get("sources", [])),
+                "estimated_hours": int(draft["estimated_hours"]),
+            }
+
+            if plan is None:
+                plan = LearningPlanItem(
+                    application_id=application.id,
+                    requirement_id=requirement.id,
+                    **plan_values,
+                )
+                db.add(plan)
+            else:
+                for field, value in plan_values.items():
+                    setattr(plan, field, value)
+
+        db.commit()
+
+        return dump(
+            {
+                "ok": True,
+                "saved": True,
+                "application_id": int(application_id),
+                "count": len(items),
+                "created_requirements": created,
+                "updated_requirements": updated,
+                "total_hours": total_hours,
+            }
+        )
+

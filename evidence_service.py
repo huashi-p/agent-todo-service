@@ -15,6 +15,12 @@ SKILL_ALIASES = {
     "fastapi": ["fastapi", "web api", "接口开发"],
     "rag": ["rag", "检索增强", "知识库问答", "向量检索"],
     "agent": ["agent", "智能体", "工具调用", "function calling"],
+    "llm_api": [
+        "llm api",
+        "大模型 api",
+        "大模型api",
+        "模型调用",
+    ],
     "postgresql": ["postgresql", "postgres", "pgsql"],
     "redis": ["redis", "缓存"],
     "docker": ["docker", "容器"],

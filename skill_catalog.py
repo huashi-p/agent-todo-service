@@ -1,4 +1,44 @@
 SKILL_PLAYBOOKS = {
+    "python": {
+        "target_level": "L3",
+        "objective": "能用 Python 独立实现并调试业务脚本",
+        "prerequisites": ["变量和函数", "基础数据结构"],
+        "steps": [
+            "练习列表、字典和函数",
+            "实现文件读写和异常处理",
+            "调用 HTTP API 并解析 JSON",
+            "编写测试并分析失败日志",
+        ],
+        "exercise": "实现一个读取岗位数据并输出统计结果的 Python 脚本。",
+        "deliverable": "可运行脚本、测试和运行说明。",
+        "acceptance_criteria": [
+            "代码包含函数和异常处理",
+            "能正确处理 JSON 数据",
+            "至少包含三个自动测试",
+            "能解释一个实际调试案例",
+        ],
+        "estimated_hours": 10,
+    },
+    "llm_api": {
+        "target_level": "L3",
+        "objective": "能稳定调用大模型 API 并处理失败情况",
+        "prerequisites": ["Python 基础", "HTTP 和 JSON"],
+        "steps": [
+            "配置 API Key 和请求地址",
+            "发送消息并解析结构化响应",
+            "处理超时、限流和格式错误",
+            "增加参数校验和自动重试",
+        ],
+        "exercise": "实现一个带超时、重试和 JSON 校验的大模型调用服务。",
+        "deliverable": "调用代码、失败日志和接口说明。",
+        "acceptance_criteria": [
+            "API Key 不出现在日志中",
+            "超时会返回明确错误",
+            "能重试临时失败请求",
+            "能拒绝模型返回的非法 JSON",
+        ],
+        "estimated_hours": 10,
+    },
     "rag": {
         "target_level": "L3",
         "objective": "能独立实现并评测带引用的 RAG 问答系统",
