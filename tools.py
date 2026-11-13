@@ -16,6 +16,10 @@ from task_service import (
     list_application_tasks,
 )
 
+from learning_plan_service import (
+    build_learning_plan,
+    save_generated_learning_plan,
+)
 
 TOOL_FUNCTIONS = {
     "create_application": create_application,
@@ -39,6 +43,9 @@ TOOL_FUNCTIONS.update(
 TOOL_FUNCTIONS["parse_job_json"] = parse_job_json
 
 TOOL_FUNCTIONS["reflect_match_result"] = reflect_match_result
+
+TOOL_FUNCTIONS["build_learning_plan"] = build_learning_plan
+TOOL_FUNCTIONS["save_learning_plan"] = save_generated_learning_plan
 
 TOOLS = [
     {
@@ -380,3 +387,78 @@ TOOLS.append(
     }
 )
 
+TOOLS.extend(
+    [
+        {
+            "type": "function",
+            "function": {
+                "name": "build_learning_plan",
+                "description": (
+                    "根据岗位技能差距生成结构化学习计划草稿，"
+                    "只返回草稿，不写入数据库。"
+                    "必须先向用户展示草稿并等待确认，"
+                    "不能自动保存"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "application_id": {
+                            "type": "integer",
+                            "description": "投递记录 ID",
+                        },
+                        "available_hours_per_week": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 40,
+                            "description": (
+                                "每周可用于学习的时长，"
+                                "默认 10 小时"
+                            ),
+                        },
+                    },
+                    "required": ["application_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_learning_plan",
+                "description": (
+                    "仅在用户明确确认草稿后保存学习计划。"
+                    "必须将 confirmed 设置为 true。"
+                    "用户只说“生成计划”不代表同意保存。"
+                    "没有可支持技能时必须返回 unsupported"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "application_id": {
+                            "type": "integer",
+                            "description": "投递记录 ID",
+                        },
+                        "available_hours_per_week": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 40,
+                            "description": (
+                                "每周可用于学习的时长，"
+                                "默认 10 小时"
+                            ),
+                        },
+                        "confirmed": {
+                            "type": "boolean",
+                            "description": (
+                                "用户是否已经明确确认保存计划"
+                            ),
+                        },
+                    },
+                    "required": [
+                        "application_id",
+                        "confirmed",
+                    ],
+                },
+            },
+        },
+    ]
+)

@@ -249,3 +249,37 @@ def save_learning_plan(
             }
         )
 
+def save_generated_learning_plan(
+    application_id,
+    available_hours_per_week=10,
+    confirmed=False,
+):
+    if not confirmed:
+        return tool_error(
+            "confirmation_required",
+            "保存学习计划前必须得到用户确认",
+        )
+
+    draft = json.loads(
+        build_learning_plan(
+            application_id,
+            available_hours_per_week,
+        )
+    )
+
+    if not draft.get("items"):
+        return dump(
+            {
+                "ok": False,
+                "error_code": "no_supported_plan",
+                "message": "当前没有可生成的技能模板",
+                "unsupported": draft.get("unsupported", []),
+            }
+        )
+
+    return save_learning_plan(
+        application_id,
+        draft["items"],
+        confirmed=confirmed,
+        available_hours_per_week=available_hours_per_week,
+    )

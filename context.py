@@ -14,6 +14,10 @@ SYSTEM_PROMPT = (
     "涉及岗位、投递状态、截止时间、简历证据或技能匹配时，"
     "必须调用提供的工具。不能编造经历、技能、日期和投递状态。"
     "匹配结论必须说明证据和缺失项，不能承诺录用结果。"
+    "生成学习计划时，必须先调用 build_learning_plan "
+    "并向用户展示草稿。用户明确确认后才能调用 "
+    "save_learning_plan。用户只说“生成计划”不代表确认保存。"
+    "没有可支持技能时必须返回 unsupported，不能编造计划。"
 )
 
 TOKEN_BUDGET = int(os.getenv("CONTEXT_TOKEN_BUDGET", "6000"))

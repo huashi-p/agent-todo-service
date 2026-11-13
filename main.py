@@ -1,5 +1,6 @@
 import json
-
+import time
+from search_client import search_learning_resources
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -398,3 +399,33 @@ async def ask_stream(request: AskRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+@app.get("/api/search/preview")
+async def search_preview(
+    query: str,
+    max_results: int = 5,
+):
+    started = time.perf_counter()
+
+    try:
+        results = await search_learning_resources(
+            query,
+            max_results=max_results,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"搜索失败：{error}",
+        ) from error
+
+    elapsed_ms = round(
+        (time.perf_counter() - started) * 1000,
+        2,
+    )
+
+    return {
+        "query": query,
+        "count": len(results),
+        "elapsed_ms": elapsed_ms,
+        "results": results,
+    }
