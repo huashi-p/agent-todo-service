@@ -1,7 +1,10 @@
+import base64
 import json
+import os
+import secrets
 import time
 from search_client import search_learning_resources
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -42,6 +45,71 @@ class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 app = FastAPI(default_response_class=UTF8JSONResponse)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def require_basic_auth(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    auth_enabled = os.getenv(
+        "APP_AUTH_ENABLED",
+        "true",
+    ).lower() in {"1", "true", "yes"}
+
+    if not auth_enabled:
+        return await call_next(request)
+
+    expected_username = os.getenv("APP_USERNAME", "")
+    expected_password = os.getenv("APP_PASSWORD", "")
+
+    if not expected_username or not expected_password:
+        return UTF8JSONResponse(
+            status_code=503,
+            content={
+                "detail": "服务认证尚未配置",
+            },
+        )
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Basic "):
+        return UTF8JSONResponse(
+            status_code=401,
+            content={"detail": "需要登录"},
+            headers={
+                "WWW-Authenticate": 'Basic realm="OfferFlow"',
+            },
+        )
+
+    try:
+        raw = base64.b64decode(
+            authorization[6:],
+            validate=True,
+        ).decode("utf-8")
+        username, password = raw.split(":", 1)
+    except (ValueError, UnicodeDecodeError):
+        username = ""
+        password = ""
+
+    username_ok = secrets.compare_digest(
+        username,
+        expected_username,
+    )
+    password_ok = secrets.compare_digest(
+        password,
+        expected_password,
+    )
+
+    if not (username_ok and password_ok):
+        return UTF8JSONResponse(
+            status_code=401,
+            content={"detail": "用户名或密码错误"},
+            headers={
+                "WWW-Authenticate": 'Basic realm="OfferFlow"',
+            },
+        )
+
+    return await call_next(request)
 
 
 @app.get("/health")
