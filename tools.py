@@ -6,7 +6,7 @@ from status_service import (
 from job_parser import parse_job_json
 from evidence_service import (
     add_evidence_document,
-    match_resume_evidence,
+    match_resume_evidence_with_model,
 )
 from reflection_service import reflect_match_result
 from plan_service import build_preparation_plan
@@ -20,6 +20,10 @@ from learning_plan_service import (
     build_learning_plan,
     save_generated_learning_plan,
 )
+from grounded_plan_service import (
+    build_grounded_learning_plan,
+    save_grounded_learning_plan,
+)
 
 TOOL_FUNCTIONS = {
     "create_application": create_application,
@@ -27,7 +31,7 @@ TOOL_FUNCTIONS = {
     "update_application_status": update_application_status,
     "list_due_applications": list_due_applications,
     "add_evidence_document": add_evidence_document,
-    "match_resume_evidence": match_resume_evidence,
+    "match_resume_evidence": match_resume_evidence_with_model,
 }
 
 TOOL_FUNCTIONS.update(
@@ -44,9 +48,12 @@ TOOL_FUNCTIONS["parse_job_json"] = parse_job_json
 
 TOOL_FUNCTIONS["reflect_match_result"] = reflect_match_result
 
-TOOL_FUNCTIONS["build_learning_plan"] = build_learning_plan
-TOOL_FUNCTIONS["save_learning_plan"] = save_generated_learning_plan
-
+TOOL_FUNCTIONS["build_learning_plan"] = (
+    build_grounded_learning_plan
+)
+TOOL_FUNCTIONS["save_learning_plan"] = (
+    save_grounded_learning_plan
+)
 TOOLS = [
     {
         "type": "function",
@@ -197,7 +204,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "match_resume_evidence",
-            "description": "根据投递记录中的岗位要求检索简历或项目证据",
+            "description": (
+    "根据投递记录中的岗位要求匹配简历或项目证据。"
+    "优先使用 DeepSeek 判断，并校验 evidence_id 是否真实存在；"
+    "模型失败时自动回退本地关键词匹配。"
+),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -394,11 +405,13 @@ TOOLS.extend(
             "function": {
                 "name": "build_learning_plan",
                 "description": (
-                    "根据岗位技能差距生成结构化学习计划草稿，"
-                    "只返回草稿，不写入数据库。"
-                    "必须先向用户展示草稿并等待确认，"
-                    "不能自动保存"
-                ),
+    "根据岗位匹配结果中的缺失或部分满足要求，"
+    "生成通用学习计划草稿。Playbook 只作为可选增强。"
+    "有真实网页来源时返回 source_id 和引用；"
+    "外部资料不可用时应降级，但不能返回 500。"
+    "只返回草稿，不写入数据库。"
+    "必须先向用户展示草稿并等待确认，不能自动保存。"
+),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -425,11 +438,12 @@ TOOLS.extend(
             "function": {
                 "name": "save_learning_plan",
                 "description": (
-                    "仅在用户明确确认草稿后保存学习计划。"
-                    "必须将 confirmed 设置为 true。"
-                    "用户只说“生成计划”不代表同意保存。"
-                    "没有可支持技能时必须返回 unsupported"
-                ),
+    "仅在用户明确确认草稿后保存同一份联网计划。"
+    "必须将 confirmed 设置为 true。"
+    "用户只说“生成计划”不代表同意保存。"
+    "保存内容来自 Redis 中已展示的计划草稿。"
+    "草稿过期时应提示用户重新生成。"
+),
                 "parameters": {
                     "type": "object",
                     "properties": {

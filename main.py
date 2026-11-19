@@ -25,8 +25,12 @@ from models import (
     SkillRequirement,
 )
 from schemas import (
+    GroundedLearningPlanDraftRequest,
     LearningPlanDraftRequest,
     LearningPlanSaveRequest,
+)
+from grounded_plan_service import (
+    build_grounded_learning_plan,
 )
 from schemas import AskRequest, TodoDone, TodoIn, TodoOut, UserIn, UserOut
 import asyncio
@@ -48,7 +52,7 @@ def health():
     }
 
 
-AGENT_TIMEOUT = 60.0
+AGENT_TIMEOUT = 300.0
 
 
 @app.get("/stream")
@@ -305,16 +309,41 @@ def get_application_detail(
     }
 
 @app.post("/api/applications/{application_id}/learning-plan/draft")
-def create_learning_plan_draft(
+async def create_learning_plan_draft(
     application_id: int,
     body: LearningPlanDraftRequest,
 ):
-    return json.loads(
-        build_learning_plan(
-            application_id,
-            body.available_hours_per_week,
-        )
+    result = await build_grounded_learning_plan(
+        application_id,
+        body.available_hours_per_week,
     )
+
+    if result.get("error_code") == "not_found":
+        raise HTTPException(
+            status_code=404,
+            detail="没有这个投递记录",
+        )
+
+    return result
+
+
+@app.post(
+    "/api/applications/{application_id}"
+    "/learning-plan/grounded-draft"
+)
+async def create_grounded_learning_plan_draft(
+    application_id: int,
+    body: GroundedLearningPlanDraftRequest,
+):
+    return await create_learning_plan_draft(
+        application_id,
+        LearningPlanDraftRequest(
+            available_hours_per_week=(
+                body.available_hours_per_week
+            )
+        ),
+    )
+
 
 @app.post("/api/applications/{application_id}/learning-plan")
 def create_saved_learning_plan(

@@ -85,3 +85,20 @@ class LearningPlanSaveRequest(BaseModel):
     )
     items: list[dict]
     confirmed: bool = False
+
+class ResourceSourceStatus(BaseModel):
+    url: str
+    final_url: str | None = None
+    ok: bool
+    status_code: int = 0
+    title: str = ""
+    text: str = ""
+    elapsed_ms: float = 0
+    error: str = ""
+
+class GroundedLearningPlanDraftRequest(BaseModel):
+    available_hours_per_week: int = Field(
+        default=10,
+        ge=1,
+        le=40,
+    )

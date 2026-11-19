@@ -9,16 +9,16 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 MAX_RESULTS = 5
 
-
 def build_search_query(requirement, target_level="L3"):
     return (
-        f"{requirement} 官方文档 教程 "
-        f"{target_level} 可运行项目"
+        f"{requirement} 官方资料 学习教程 "
+        f"实践案例 {target_level}"
     )
 
 
 async def search_learning_resources(
     requirement,
+    target_level="L3",
     max_results=5,
 ):
     provider = os.getenv("SEARCH_PROVIDER", "tavily")
@@ -42,7 +42,10 @@ async def search_learning_resources(
             f"{base_url}/search",
             json={
                 "api_key": api_key,
-                "query": build_search_query(requirement),
+                "query": build_search_query(
+                    requirement,
+                    target_level,
+                ),
                 "max_results": max_results,
                 "search_depth": "basic",
             },

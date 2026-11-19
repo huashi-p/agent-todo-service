@@ -1,3 +1,4 @@
+import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -72,6 +73,19 @@ def has_direct_skill_match(requirement, content):
             return True
 
     return False
+
+
+def infer_local_category(requirement):
+    normalized = normalize_text(requirement)
+
+    for aliases in SKILL_ALIASES.values():
+        if any(
+            normalize_text(alias) in normalized
+            for alias in aliases
+        ):
+            return "technical_skill"
+
+    return "unknown"
 
 
 def rank_evidence(requirement, chunks, top_k=3):
@@ -207,6 +221,7 @@ def match_resume_evidence(application_id, top_k=3):
             matches.append(
                 {
                     "requirement": requirement,
+                    "category": infer_local_category(requirement),
                     "match_status": match_status,
                     "evidence": evidence,
                 }
@@ -222,6 +237,114 @@ def match_resume_evidence(application_id, top_k=3):
             }
         )
 
+async def match_resume_evidence_with_model(
+    application_id,
+    top_k=3,
+):
+    from llm_evidence_match import (
+        build_match_result,
+        match_requirements_with_model,
+    )
+
+    with Session(engine) as db:
+        application = db.get(
+            JobApplication,
+            int(application_id),
+        )
+
+        if application is None:
+            return tool_error(
+                "not_found",
+                "没有这个投递记录",
+            )
+
+        rows = db.execute(
+            select(EvidenceChunk, EvidenceDocument)
+            .join(
+                EvidenceDocument,
+                EvidenceChunk.document_id
+                == EvidenceDocument.id,
+            )
+            .order_by(
+                EvidenceChunk.document_id,
+                EvidenceChunk.chunk_index,
+            )
+        ).all()
+
+        application_data = {
+            "id": application.id,
+            "company": application.company,
+            "title": application.title,
+            "description": application.description,
+            "requirements": list(
+                application.requirements or []
+            ),
+        }
+        chunks = [
+            {
+                "evidence_id": chunk.id,
+                "document_id": document.id,
+                "document_title": document.title,
+                "project_name": document.project_name,
+                "chunk_index": chunk.chunk_index,
+                "content": chunk.content,
+                "source_label": document.source_label,
+            }
+            for chunk, document in rows
+        ][:30]
+
+    if not application_data["requirements"]:
+        return dump(
+            {
+                **application_data,
+                "matches": [],
+                "match_method": "none",
+                "note": "该投递没有可匹配的岗位要求",
+            }
+        )
+
+    if not chunks:
+        fallback = json.loads(
+            match_resume_evidence(
+                application_id,
+                top_k=top_k,
+            )
+        )
+        fallback["match_method"] = "local_fallback"
+        fallback["fallback_reason"] = "证据库为空"
+        for match in fallback["matches"]:
+            match["match_method"] = "local_fallback"
+        return dump(fallback)
+
+    try:
+        payload = await match_requirements_with_model(
+            application_data["requirements"],
+            chunks,
+            job_description=application_data["description"],
+        )
+
+        return dump(
+            build_match_result(
+                payload,
+                application_data,
+                chunks,
+                match_method="llm_verified",
+            )
+        )
+    except Exception as error:
+        fallback = json.loads(
+            match_resume_evidence(
+                application_id,
+                top_k=top_k,
+            )
+        )
+        fallback["match_method"] = "local_fallback"
+        fallback["fallback_reason"] = (
+            f"{type(error).__name__}: {str(error)[:300]}"
+        )
+        for match in fallback["matches"]:
+            match["match_method"] = "local_fallback"
+        return dump(fallback)
 
 def split_evidence_text(text, max_chars=700):
     cleaned = text.replace("\r\n", "\n").strip()

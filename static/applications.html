@@ -35,6 +35,36 @@
       padding-left: 12px;
       margin: 10px 0;
     }
+    .plan-tools {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 12px 0;
+    }
+    .plan-message {
+      color: #555;
+    }
+    .draft-box {
+      margin: 12px 0 20px;
+    }
+    .source {
+      border-left: 3px solid #4b7bec;
+      padding-left: 10px;
+      margin: 8px 0 8px 18px;
+    }
+    .source p {
+      color: #555;
+    }
+    .plan-warning {
+      color: #9a6700;
+    }
+    .excluded {
+      border-left: 3px solid #b07d00;
+      padding-left: 10px;
+      margin: 8px 0;
+      color: #665000;
+    }
   </style>
 </head>
 <body>
@@ -65,6 +95,7 @@
 
     const listBox = document.querySelector("#applications");
     const detailBox = document.querySelector("#detail");
+    const draftByApplication = new Map();
 
     async function loadApplications() {
       listBox.textContent = "正在加载……";
@@ -89,6 +120,117 @@
         ].join(" | ");
         button.addEventListener("click", () => loadDetail(application.id));
         listBox.appendChild(button);
+      }
+    }
+
+    const RESOURCE_LABELS = {
+      curated_grounded: "人工模板 + 联网来源",
+      generated_grounded: "AI 生成 + 联网来源",
+      curated_template: "人工模板，未联网验证",
+      model_only: "AI 基础建议，未联网验证",
+      basic_fallback: "通用步骤骨架"
+    };
+
+    const CATEGORY_LABELS = {
+      technical_skill: "技术技能",
+      tool_skill: "工具技能",
+      domain_knowledge: "行业知识",
+      experience: "实践经历",
+      education: "学历资格",
+      certificate: "证书资格",
+      soft_skill: "软技能",
+      motivation_attitude: "主观态度",
+      work_condition: "工作条件",
+      non_learning_constraint: "非学习要求",
+      unknown: "无法分类"
+    };
+
+    function renderDraftPreview(container, draft) {
+      container.textContent = "";
+
+      const title = document.createElement("h4");
+      title.textContent = "新计划草稿";
+      container.appendChild(title);
+
+      for (const plan of draft.items || []) {
+        const item = document.createElement("div");
+        item.className = "task";
+        item.textContent = [
+          plan.title,
+          CATEGORY_LABELS[plan.category] || plan.category,
+          RESOURCE_LABELS[plan.resource_status]
+            || plan.resource_status,
+          `预计 ${plan.estimated_hours} 小时`
+        ].filter(Boolean).join(" | ");
+        container.appendChild(item);
+
+        const details = document.createElement("ul");
+        for (const [label, value] of [
+          ["练习", plan.exercise],
+          ["交付物", plan.deliverable],
+          ["学习步骤", (plan.steps || []).join("；")],
+          [
+            "验收标准",
+            (plan.acceptance_criteria || []).join("；")
+          ]
+        ]) {
+          const row = document.createElement("li");
+          row.textContent = `${label}：${value}`;
+          details.appendChild(row);
+        }
+        container.appendChild(details);
+
+        if (plan.quality_note) {
+          const note = document.createElement("p");
+          note.textContent = plan.quality_note;
+          container.appendChild(note);
+        }
+
+        for (const source of plan.sources || []) {
+          const sourceBox = document.createElement("div");
+          sourceBox.className = "source";
+
+          const link = document.createElement("a");
+          link.href = source.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = source.title || source.url;
+          sourceBox.appendChild(link);
+
+          if (source.evidence_quote) {
+            const quote = document.createElement("p");
+            quote.textContent = source.evidence_quote;
+            sourceBox.appendChild(quote);
+          }
+
+          container.appendChild(sourceBox);
+        }
+      }
+
+      if ((draft.planning_exclusions || []).length) {
+        const excludedTitle = document.createElement("h5");
+        excludedTitle.textContent = "未生成学习计划的要求";
+        container.appendChild(excludedTitle);
+
+        for (const item of draft.planning_exclusions) {
+          const row = document.createElement("div");
+          row.className = "excluded";
+          row.textContent = [
+            item.requirement,
+            CATEGORY_LABELS[item.category] || item.category,
+            item.reason
+          ].filter(Boolean).join(" | ");
+          container.appendChild(row);
+        }
+      }
+
+      if ((draft.resource_errors || []).length) {
+        const warning = document.createElement("p");
+        warning.className = "plan-warning";
+        warning.textContent = (
+          "部分外部资料获取失败，相关计划使用了降级方案。"
+        );
+        container.appendChild(warning);
       }
     }
 
@@ -163,6 +305,177 @@
       planTitle.textContent = "技能进阶计划";
       detailBox.appendChild(planTitle);
 
+      const planTools = document.createElement("div");
+      planTools.className = "plan-tools";
+
+      const hoursInput = document.createElement("input");
+      hoursInput.type = "number";
+      hoursInput.min = "1";
+      hoursInput.max = "40";
+      hoursInput.value = "10";
+      hoursInput.setAttribute("aria-label", "每周学习时长");
+
+      const generateButton = document.createElement("button");
+      generateButton.textContent = "生成联网学习计划";
+
+      const saveButton = document.createElement("button");
+      saveButton.textContent = "确认保存学习计划";
+      saveButton.disabled = true;
+
+      const planMessage = document.createElement("span");
+      planMessage.className = "plan-message";
+
+      planTools.append(
+        hoursInput,
+        document.createTextNode(" 小时/周 "),
+        generateButton,
+        saveButton,
+        document.createTextNode(" "),
+        planMessage
+      );
+      detailBox.appendChild(planTools);
+
+      const draftBox = document.createElement("div");
+      draftBox.className = "draft-box";
+      detailBox.appendChild(draftBox);
+
+      generateButton.addEventListener("click", async () => {
+        await generateGroundedDraft(
+          applicationId,
+          Number(hoursInput.value),
+          planMessage,
+          draftBox
+        );
+      });
+
+      saveButton.addEventListener("click", async () => {
+        await saveGroundedDraft(
+          applicationId,
+          Number(hoursInput.value),
+          planMessage
+        );
+      });
+
+      async function generateGroundedDraft(
+        applicationId,
+        availableHours,
+        messageBox,
+        draftBox
+      ) {
+        if (!Number.isInteger(availableHours) ||
+            availableHours < 1 ||
+            availableHours > 40) {
+          messageBox.textContent = (
+            "每周学习时长必须是 1–40 小时。"
+          );
+          return;
+        }
+
+        messageBox.textContent = (
+          "正在搜索资料并生成计划……"
+        );
+        saveButton.disabled = true;
+
+        const response = await fetch(
+          `/api/applications/${applicationId}`
+          + "/learning-plan/grounded-draft",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              available_hours_per_week: availableHours
+            })
+          }
+        );
+
+        const draft = await response.json();
+
+        if (!response.ok) {
+          messageBox.textContent = (
+            `生成失败：${draft.detail || "未知错误"}`
+          );
+          return;
+        }
+
+        draftByApplication.set(applicationId, draft);
+        renderDraftPreview(draftBox, draft);
+        saveButton.disabled = false;
+        messageBox.textContent = (
+          `草稿已生成，共 ${draft.items?.length || 0} 项。`
+        );
+
+        console.log("联网计划草稿", draft);
+      }
+
+      async function saveGroundedDraft(
+        applicationId,
+        availableHours,
+        messageBox
+      ) {
+        const draft = draftByApplication.get(applicationId);
+
+        if (!draft || !(draft.items || []).length) {
+          messageBox.textContent = (
+            "没有可保存的计划草稿，请重新生成。"
+          );
+          return;
+        }
+
+        if (!Number.isInteger(availableHours) ||
+            availableHours < 1 ||
+            availableHours > 40) {
+          messageBox.textContent = (
+            "每周学习时长必须是 1–40 小时。"
+          );
+          return;
+        }
+
+        const confirmed = window.confirm(
+          "确认保存当前展示的这份学习计划草稿吗？"
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        messageBox.textContent = "正在保存学习计划……";
+
+        const response = await fetch(
+          `/api/applications/${applicationId}/learning-plan`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              available_hours_per_week: availableHours,
+              confirmed: true,
+              items: draft.items
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+          messageBox.textContent = (
+            `保存失败：${
+              result.detail
+              || result.message
+              || "未知错误"
+            }`
+          );
+          return;
+        }
+
+        draftByApplication.delete(applicationId);
+        saveButton.disabled = true;
+        messageBox.textContent = "学习计划已保存。";
+        await loadDetail(applicationId);
+      }
+
       if (!planData.items.length) {
         const empty = document.createElement("p");
         empty.textContent = "暂无学习计划。";
@@ -192,6 +505,26 @@
           details.appendChild(row);
         }
         detailBox.appendChild(details);
+
+        for (const source of plan.sources || []) {
+          const sourceBox = document.createElement("div");
+          sourceBox.className = "source";
+
+          const link = document.createElement("a");
+          link.href = source.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = source.title || source.url;
+          sourceBox.appendChild(link);
+
+          if (source.evidence_quote) {
+            const quote = document.createElement("p");
+            quote.textContent = source.evidence_quote;
+            sourceBox.appendChild(quote);
+          }
+
+          detailBox.appendChild(sourceBox);
+        }
       }
     }
 
