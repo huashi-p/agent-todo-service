@@ -65,11 +65,135 @@
       margin: 8px 0;
       color: #665000;
     }
+    .create-panel {
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 24px;
+      background: #fafafa;
+    }
+    .create-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .create-grid label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .create-grid .full {
+      grid-column: 1 / -1;
+    }
+    .create-grid input,
+    .create-grid textarea {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+    }
+    .jd-preview {
+      max-height: 320px;
+      overflow: auto;
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #ddd;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .create-message {
+      margin-left: 10px;
+      color: #555;
+    }
+    .status-tools,
+    .task-form,
+    .task-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .status-tools,
+    .task-form {
+      padding: 10px;
+      background: #f5f7fa;
+      border-radius: 8px;
+    }
+    .status-tools input,
+    .status-tools select,
+    .task-form input,
+    .task-form select,
+    .task-form textarea {
+      padding: 7px;
+      box-sizing: border-box;
+    }
+    .status-tools input,
+    .task-form input {
+      min-width: 210px;
+    }
+    .task-note {
+      color: #555;
+      margin-left: 12px;
+    }
   </style>
 </head>
 <body>
   <h1>OfferFlow 投递跟踪</h1>
   <p><a href="/static/chat.html">返回 Agent 对话</a></p>
+  <section class="create-panel">
+    <h2>新建投递</h2>
+
+    <form id="applicationForm">
+      <div class="create-grid">
+        <label>
+          公司
+          <input id="createCompany" required maxlength="200">
+        </label>
+
+        <label>
+          岗位
+          <input id="createTitle" required maxlength="200">
+        </label>
+
+        <label>
+          地点
+          <input id="createLocation" maxlength="200">
+        </label>
+
+        <label>
+          截止时间
+          <input id="createDeadline" type="datetime-local">
+        </label>
+
+        <label class="full">
+          岗位描述与岗位要求
+          <textarea
+            id="createJdText"
+            rows="10"
+            required
+            minlength="10"
+            maxlength="30000"
+            placeholder="把 BOSS 等平台复制的岗位描述和岗位要求一起粘贴到这里"
+          ></textarea>
+        </label>
+      </div>
+
+      <p>
+        <button id="createApplicationButton" type="submit">
+          创建投递
+        </button>
+        <span
+          id="createApplicationMessage"
+          class="create-message"
+        ></span>
+      </p>
+
+      <details>
+        <summary>查看解析结果</summary>
+        <pre id="createParsePreview" class="jd-preview"></pre>
+      </details>
+    </form>
+  </section>
   <div class="layout">
     <section>
       <h2>全部投递</h2>
@@ -91,6 +215,48 @@
       offer: "Offer",
       rejected: "已拒绝",
       withdrawn: "已撤回"
+    };
+
+    const STATUS_TRANSITIONS = {
+      applied: [
+        "assessment",
+        "first_interview",
+        "rejected",
+        "withdrawn"
+      ],
+      assessment: [
+        "first_interview",
+        "rejected",
+        "withdrawn"
+      ],
+      first_interview: [
+        "second_interview",
+        "hr_interview",
+        "offer",
+        "rejected",
+        "withdrawn"
+      ],
+      second_interview: [
+        "hr_interview",
+        "offer",
+        "rejected",
+        "withdrawn"
+      ],
+      hr_interview: [
+        "offer",
+        "rejected",
+        "withdrawn"
+      ],
+      offer: [],
+      rejected: [],
+      withdrawn: []
+    };
+
+    const TASK_TYPE_LABELS = {
+      skill_gap: "技能补强",
+      interview_preparation: "面试准备",
+      follow_up: "跟进",
+      assessment: "测评"
     };
 
     const listBox = document.querySelector("#applications");
@@ -256,6 +422,55 @@
       ].join(" | ");
       detailBox.appendChild(summary);
 
+      const allowedStatuses = (
+        STATUS_TRANSITIONS[data.current_status] || []
+      );
+      const statusTools = document.createElement("div");
+      statusTools.className = "status-tools";
+
+      if (allowedStatuses.length) {
+        const nextStatus = document.createElement("select");
+        nextStatus.setAttribute("aria-label", "下一状态");
+
+        for (const status of allowedStatuses) {
+          const option = document.createElement("option");
+          option.value = status;
+          option.textContent = STATUS_LABELS[status] || status;
+          nextStatus.appendChild(option);
+        }
+
+        const noteInput = document.createElement("input");
+        noteInput.placeholder = "状态备注，例如：收到测评通知";
+        noteInput.maxLength = 1000;
+
+        const updateButton = document.createElement("button");
+        updateButton.textContent = "更新状态";
+
+        const statusMessage = document.createElement("span");
+        statusMessage.className = "plan-message";
+
+        updateButton.addEventListener("click", async () => {
+          await updateApplicationStatus(
+            applicationId,
+            nextStatus.value,
+            noteInput.value,
+            statusMessage,
+            updateButton
+          );
+        });
+
+        statusTools.append(
+          nextStatus,
+          noteInput,
+          updateButton,
+          statusMessage
+        );
+      } else {
+        statusTools.textContent = "该投递已结束，不能继续流转。";
+      }
+
+      detailBox.appendChild(statusTools);
+
       const historyTitle = document.createElement("h4");
       historyTitle.textContent = "状态历史";
       detailBox.appendChild(historyTitle);
@@ -283,6 +498,62 @@
       tasksTitle.textContent = "关联任务";
       detailBox.appendChild(tasksTitle);
 
+      const taskForm = document.createElement("form");
+      taskForm.className = "task-form";
+
+      const taskTitle = document.createElement("input");
+      taskTitle.placeholder = "任务标题";
+      taskTitle.required = true;
+      taskTitle.maxLength = 200;
+
+      const taskType = document.createElement("select");
+      taskType.setAttribute("aria-label", "任务类型");
+
+      for (const [value, label] of Object.entries(TASK_TYPE_LABELS)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        taskType.appendChild(option);
+      }
+
+      const taskDue = document.createElement("input");
+      taskDue.type = "datetime-local";
+      taskDue.setAttribute("aria-label", "任务截止时间");
+
+      const taskNote = document.createElement("input");
+      taskNote.placeholder = "任务说明，可选";
+      taskNote.maxLength = 2000;
+
+      const taskButton = document.createElement("button");
+      taskButton.type = "submit";
+      taskButton.textContent = "添加任务";
+
+      const taskMessage = document.createElement("span");
+      taskMessage.className = "plan-message";
+
+      taskForm.append(
+        taskTitle,
+        taskType,
+        taskDue,
+        taskNote,
+        taskButton,
+        taskMessage
+      );
+      detailBox.appendChild(taskForm);
+
+      taskForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await createApplicationTask(
+          applicationId,
+          taskTitle.value,
+          taskType.value,
+          taskDue.value,
+          taskNote.value,
+          taskMessage,
+          taskButton
+        );
+      });
+
       if (!data.tasks.length) {
         const empty = document.createElement("p");
         empty.textContent = "暂无任务。";
@@ -292,12 +563,45 @@
       for (const task of data.tasks) {
         const item = document.createElement("div");
         item.className = "task";
-        item.textContent = [
+        const text = document.createElement("div");
+        text.textContent = [
           task.title,
-          task.task_type,
-          task.status,
+          TASK_TYPE_LABELS[task.task_type] || task.task_type,
+          task.status === "done" ? "已完成" : "待完成",
           task.due_at ? `截止：${new Date(task.due_at).toLocaleString()}` : ""
         ].filter(Boolean).join(" | ");
+        item.appendChild(text);
+
+        if (task.note) {
+          const note = document.createElement("div");
+          note.className = "task-note";
+          note.textContent = task.note;
+          item.appendChild(note);
+        }
+
+        if (task.status !== "done") {
+          const actions = document.createElement("div");
+          actions.className = "task-actions";
+
+          const completeButton = document.createElement("button");
+          completeButton.textContent = "完成任务";
+
+          const completeMessage = document.createElement("span");
+          completeMessage.className = "plan-message";
+
+          completeButton.addEventListener("click", async () => {
+            await completeApplicationTask(
+              applicationId,
+              task.id,
+              completeMessage,
+              completeButton
+            );
+          });
+
+          actions.append(completeButton, completeMessage);
+          item.appendChild(actions);
+        }
+
         detailBox.appendChild(item);
       }
 
@@ -374,6 +678,7 @@
         messageBox.textContent = (
           "正在搜索资料并生成计划……"
         );
+        generateButton.disabled = true;
         saveButton.disabled = true;
 
         const response = await fetch(
@@ -396,11 +701,13 @@
           messageBox.textContent = (
             `生成失败：${draft.detail || "未知错误"}`
           );
+          generateButton.disabled = false;
           return;
         }
 
         draftByApplication.set(applicationId, draft);
         renderDraftPreview(draftBox, draft);
+        generateButton.disabled = false;
         saveButton.disabled = false;
         messageBox.textContent = (
           `草稿已生成，共 ${draft.items?.length || 0} 项。`
@@ -527,6 +834,259 @@
         }
       }
     }
+
+    async function updateApplicationStatus(
+      applicationId,
+      newStatus,
+      note,
+      messageBox,
+      button
+    ) {
+      button.disabled = true;
+      messageBox.textContent = "正在更新状态……";
+
+      try {
+        const response = await fetch(
+          `/api/applications/${applicationId}/status`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              new_status: newStatus,
+              note: note.trim()
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(formatApiError(result));
+        }
+
+        messageBox.textContent = "状态更新成功。";
+        await loadApplications();
+        await loadDetail(applicationId);
+      } catch (error) {
+        messageBox.textContent = `更新失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+
+    async function createApplicationTask(
+      applicationId,
+      title,
+      taskType,
+      dueAt,
+      note,
+      messageBox,
+      button
+    ) {
+      if (!title.trim()) {
+        messageBox.textContent = "任务标题不能为空。";
+        return;
+      }
+
+      button.disabled = true;
+      messageBox.textContent = "正在添加任务……";
+
+      try {
+        const response = await fetch(
+          `/api/applications/${applicationId}/tasks`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              title: title.trim(),
+              task_type: taskType,
+              due_at: dueAt || null,
+              note: note.trim()
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(formatApiError(result));
+        }
+
+        messageBox.textContent = "任务已添加。";
+        await loadDetail(applicationId);
+      } catch (error) {
+        messageBox.textContent = `添加失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+
+    async function completeApplicationTask(
+      applicationId,
+      taskId,
+      messageBox,
+      button
+    ) {
+      button.disabled = true;
+      messageBox.textContent = "正在完成任务……";
+
+      try {
+        const response = await fetch(
+          `/api/applications/${applicationId}/tasks/${taskId}`,
+          {
+            method: "PATCH"
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(formatApiError(result));
+        }
+
+        await loadDetail(applicationId);
+      } catch (error) {
+        messageBox.textContent = `操作失败：${error.message}`;
+        button.disabled = false;
+      }
+    }
+
+
+    function formatApiError(data) {
+      const detail = data?.detail;
+
+      if (typeof detail === "string") {
+        return detail;
+      }
+
+      if (detail?.message) {
+        return detail.message;
+      }
+
+      return JSON.stringify(detail || data);
+    }
+
+
+    async function createApplicationFromForm(event) {
+      event.preventDefault();
+
+      const button = document.querySelector(
+        "#createApplicationButton"
+      );
+      const message = document.querySelector(
+        "#createApplicationMessage"
+      );
+      const preview = document.querySelector(
+        "#createParsePreview"
+      );
+      const company = document.querySelector(
+        "#createCompany"
+      ).value.trim();
+      const title = document.querySelector(
+        "#createTitle"
+      ).value.trim();
+      const location = document.querySelector(
+        "#createLocation"
+      ).value.trim();
+      const deadline = document.querySelector(
+        "#createDeadline"
+      ).value;
+      const description = document.querySelector(
+        "#createJdText"
+      ).value.trim();
+
+      button.disabled = true;
+      message.textContent = "正在解析岗位要求……";
+
+      try {
+        const parseResponse = await fetch(
+          "/api/jobs/parse",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              description: [
+                `公司：${company}`,
+                `岗位：${title}`,
+                location ? `地点：${location}` : "",
+                description
+              ].filter(Boolean).join("\n\n")
+            })
+          }
+        );
+        let parsed = {
+          requirements: []
+        };
+        let parseWarning = "";
+
+        if (parseResponse.ok) {
+          parsed = await parseResponse.json();
+          preview.textContent = JSON.stringify(parsed, null, 2);
+        } else {
+          const parseError = await parseResponse.json();
+          parseWarning = formatApiError(parseError);
+          preview.textContent = (
+            `岗位要求解析失败：${parseWarning}`
+          );
+        }
+
+        message.textContent = "正在创建投递……";
+
+        const createResponse = await fetch(
+          "/api/applications",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              company,
+              title,
+              location: location || null,
+              deadline: deadline || null,
+              description,
+              requirements: parsed.requirements || []
+            })
+          }
+        );
+        const data = await createResponse.json();
+
+        if (!createResponse.ok) {
+          throw new Error(formatApiError(data));
+        }
+
+        message.textContent = (
+          parseWarning
+            ? (
+              `投递已创建，但岗位要求解析失败：`
+              + `${parseWarning}`
+            )
+            : `创建成功，投递 ID：${data.application_id}`
+        );
+
+        document.querySelector("#applicationForm").reset();
+
+        await loadApplications();
+        await loadDetail(data.application_id);
+      } catch (error) {
+        message.textContent = `操作失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+
+    document
+      .querySelector("#applicationForm")
+      .addEventListener("submit", createApplicationFromForm);
 
     document.querySelector("#refresh").addEventListener("click", loadApplications);
     loadApplications();

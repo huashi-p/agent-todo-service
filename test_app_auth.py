@@ -1,3 +1,5 @@
+import base64
+
 from fastapi.testclient import TestClient
 
 from main import app
@@ -48,3 +50,21 @@ def test_missing_credentials_fail_closed(monkeypatch):
     response = client.get("/api/applications")
 
     assert response.status_code == 503
+
+
+def test_non_ascii_credentials_do_not_crash(monkeypatch):
+    monkeypatch.setenv("APP_AUTH_ENABLED", "true")
+    monkeypatch.setenv("APP_USERNAME", "测试用户")
+    monkeypatch.setenv("APP_PASSWORD", "测试密码")
+
+    raw = "测试用户:测试密码".encode("utf-8")
+    token = base64.b64encode(raw).decode("ascii")
+
+    response = client.get(
+        "/static/applications.html",
+        headers={
+            "Authorization": f"Basic {token}",
+        },
+    )
+
+    assert response.status_code == 200

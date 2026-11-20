@@ -69,6 +69,72 @@ class ParsedJob(BaseModel):
     deadline: datetime | None = None
     requirements: list[str] = Field(default_factory=list, max_length=30)
 
+class JobApplicationCreateRequest(BaseModel):
+    company: str = Field(
+        min_length=1,
+        max_length=200,
+    )
+    title: str = Field(
+        min_length=1,
+        max_length=200,
+    )
+    description: str = Field(
+        min_length=10,
+        max_length=20000,
+    )
+    location: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+    deadline: datetime | None = None
+    requirements: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+
+class JobDescriptionParseRequest(BaseModel):
+    description: str = Field(
+        min_length=10,
+        max_length=30000,
+    )
+
+
+class ApplicationStatusUpdateRequest(BaseModel):
+    new_status: Literal[
+        "applied",
+        "assessment",
+        "first_interview",
+        "second_interview",
+        "hr_interview",
+        "offer",
+        "rejected",
+        "withdrawn",
+    ]
+    note: str = Field(
+        default="",
+        max_length=1000,
+    )
+
+
+class ApplicationTaskCreateRequest(BaseModel):
+    title: str = Field(
+        min_length=1,
+        max_length=200,
+    )
+    task_type: Literal[
+        "skill_gap",
+        "interview_preparation",
+        "follow_up",
+        "assessment",
+    ] = "interview_preparation"
+    due_at: datetime | None = None
+    note: str = Field(
+        default="",
+        max_length=2000,
+    )
+
+
 class LearningPlanDraftRequest(BaseModel):
     available_hours_per_week: int = Field(
         default=10,

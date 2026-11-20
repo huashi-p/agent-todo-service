@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session, selectinload
 from agent import run_agent
 from cache import TODOS_CACHE_KEY, cache_clear, cache_get, cache_set
 from database import Base, engine, get_db
-
+from application_service import create_application
+from job_parser import parse_job_description
+from status_service import update_application_status
+from task_service import (
+    complete_application_task,
+    create_application_task,
+)
 from models import (
     ApplicationStatusEvent,
     ApplicationTask,
@@ -28,7 +34,11 @@ from models import (
     SkillRequirement,
 )
 from schemas import (
+    ApplicationStatusUpdateRequest,
+    ApplicationTaskCreateRequest,
     GroundedLearningPlanDraftRequest,
+    JobApplicationCreateRequest,
+    JobDescriptionParseRequest,
     LearningPlanDraftRequest,
     LearningPlanSaveRequest,
 )
@@ -92,12 +102,12 @@ async def require_basic_auth(request: Request, call_next):
         password = ""
 
     username_ok = secrets.compare_digest(
-        username,
-        expected_username,
+        username.encode("utf-8"),
+        expected_username.encode("utf-8"),
     )
     password_ok = secrets.compare_digest(
-        password,
-        expected_password,
+        password.encode("utf-8"),
+        expected_password.encode("utf-8"),
     )
 
     if not (username_ok and password_ok):
@@ -290,6 +300,171 @@ async def ask_stream_events(question: str, history):
         await asyncio.sleep(0.03)
 
     yield "event: done\ndata: [DONE]\n\n"
+
+
+@app.post("/api/jobs/parse")
+async def parse_job_record(
+    body: JobDescriptionParseRequest,
+):
+    try:
+        parsed = await parse_job_description(
+            body.description
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "岗位 JD 解析失败："
+                f"{type(error).__name__}: {error}"
+            ),
+        ) from error
+
+    return parsed.model_dump(mode="json")
+
+
+@app.post("/api/applications", status_code=201)
+def create_application_record(
+    body: JobApplicationCreateRequest,
+):
+    result = json.loads(
+        create_application(
+            company=body.company,
+            title=body.title,
+            description=body.description,
+            location=body.location,
+            deadline=body.deadline,
+            requirements=body.requirements,
+            confirmed=True,
+        )
+    )
+
+    if not result.get("ok"):
+        error_code = result.get("error_code")
+
+        if error_code == "duplicate_application":
+            raise HTTPException(
+                status_code=409,
+                detail=result,
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail=result,
+        )
+
+    return result
+
+
+@app.patch("/api/applications/{application_id}/status")
+def update_application_status_record(
+    application_id: int,
+    body: ApplicationStatusUpdateRequest,
+):
+    result = json.loads(
+        update_application_status(
+            application_id=application_id,
+            new_status=body.new_status,
+            note=body.note,
+            confirmed=True,
+        )
+    )
+
+    if not result.get("ok"):
+        error_code = result.get("error_code")
+
+        if error_code == "not_found":
+            raise HTTPException(
+                status_code=404,
+                detail=result,
+            )
+
+        if error_code == "invalid_transition":
+            raise HTTPException(
+                status_code=409,
+                detail=result,
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail=result,
+        )
+
+    return result
+
+
+@app.post(
+    "/api/applications/{application_id}/tasks",
+    status_code=201,
+)
+def create_application_task_record(
+    application_id: int,
+    body: ApplicationTaskCreateRequest,
+):
+    result = json.loads(
+        create_application_task(
+            application_id=application_id,
+            title=body.title,
+            task_type=body.task_type,
+            due_at=body.due_at,
+            note=body.note,
+            confirmed=True,
+        )
+    )
+
+    if not result.get("ok"):
+        error_code = result.get("error_code")
+
+        if error_code == "not_found":
+            raise HTTPException(
+                status_code=404,
+                detail=result,
+            )
+
+        if error_code == "duplicate_task":
+            raise HTTPException(
+                status_code=409,
+                detail=result,
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail=result,
+        )
+
+    return result
+
+
+@app.patch(
+    "/api/applications/{application_id}/tasks/{task_id}"
+)
+def complete_application_task_record(
+    application_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+):
+    task = db.get(ApplicationTask, task_id)
+
+    if task is None or task.application_id != application_id:
+        raise HTTPException(
+            status_code=404,
+            detail="没有这个任务",
+        )
+
+    result = json.loads(
+        complete_application_task(
+            task_id=task_id,
+            confirmed=True,
+        )
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=result,
+        )
+
+    return result
+
 
 @app.get("/api/applications")
 def list_application_records(
